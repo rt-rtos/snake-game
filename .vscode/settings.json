@@ -1,9 +1,0 @@
-{
-    "C_Cpp.default.compilerPath": "C:/msys64/mingw64/bin/gcc.exe",
-    "files.associations": {
-        "colors.h": "c",
-        "unistd.h": "c",
-        "time.h": "c",
-        "stdlib.h": "c"
-    }
-}
