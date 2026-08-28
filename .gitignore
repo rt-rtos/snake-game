@@ -2,6 +2,7 @@
 PDCurses/wincon/colors.h
 
 # Common Windows build clutter (optional)
+build/
 *.pdb
 *.ilk
 *.obj
@@ -10,3 +11,10 @@ PDCurses/wincon/colors.h
 *.log
 Thumbs.db
 Desktop.ini
+CMakeUserPresets.json
+.clangd
+*/build/*
+*/.cache/*
+.cache/
+*/cache/*
+build-windows/

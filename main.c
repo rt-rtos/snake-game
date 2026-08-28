@@ -1,3 +1,7 @@
+#ifndef _WIN32
+    #define _DEFAULT_SOURCE
+#endif
+
 #include "colors.h"
 #include <stdlib.h>
 #include <time.h>
@@ -67,7 +71,29 @@ typedef struct {
 } DeathItem;
 // Multiple death items
 DeathItem deathItems[MAX_DEATH_ITEMS];
-int deathItemCount = 0;
+
+// Shrink potion — rare "get out of jail" item that trims the snake by
+// SHRINK_AMOUNT segments (never below 3).
+#define SHRINK_AMOUNT 3
+typedef struct {
+    Point pos;
+    int active;
+    char symbol;
+} ShrinkPotion;
+ShrinkPotion shrinkPotion = {{0, 0}, 0, '-'};
+
+// Runtime config picked in the pre-game options screen.
+typedef struct {
+    int wraparound;   // 0 = walls kill, 1 = wrap around
+    int speedIndex;   // 1..5, indexes into speedIntervals[]
+    int useArrows;    // 0 = WASD, 1 = arrow keys
+} Config;
+Config config = {0, 3, 0};
+
+// Movement interval per speed setting. Lower = snake steps more often.
+// Index 0 unused so the numbers on screen line up with the array.
+static const int speedIntervals[] = {0, 18, 14, 10, 7, 5};
+static const char *speedNames[]   = {"", "Very Slow", "Slow", "Normal", "Fast", "Very Fast"};
 
 Snake snake;
 Point food[MAX_FOOD];
@@ -75,12 +101,14 @@ int foodCount = 0;
 TempFood tempFood[MAX_TEMP_FOOD];
 int tempFoodCount = 0;
 int gameOver = 0;
- int refreshCounter = 0;
+int paused = 0;
+int refreshCounter = 0;
+int tempFoodSpawnCounter = 0;
 int movementFrameCounter = 0;  // Counter for movement timing
 int nextDirection = RIGHT;  // Buffer for next direction to prevent double-turns
 int speedBoostTimer = 0;  // Timer for speed boost duration
 int speedBoostActive = 0; // Flag for whether speed boost is active
-WINDOW *gameWin = NULL; 
+WINDOW *gameWin = NULL;
 
 // Function declarations
 int checkCollision(Point next);
@@ -92,6 +120,12 @@ void initSnake() {
     snake.length = 3;
     snake.direction = RIGHT;
     nextDirection = RIGHT;  // Initialize next direction
+    // Clear the entire body array so future growth never picks up stale
+    // positions left over from a previous game or previous larger length.
+    for (int i = 0; i < MAX_SNAKE_LEN; i++) {
+        snake.body[i].x = 0;
+        snake.body[i].y = 0;
+    }
     int startX = COLS / 2;
     int startY = ROWS / 2;
     for (int i = 0; i < snake.length; i++) {
@@ -110,12 +144,14 @@ void resetGame() {
     speedBoostActive = 0;
     foodCount = 0;
     tempFoodCount = 0;
-    
+    tempFoodSpawnCounter = 0;
+
     // Deactivate special items
     specialItem.active = 0;
-    
-    // Reset death items - MUST reset count first, then clear all slots
-    deathItemCount = 0;
+    shrinkPotion.active = 0;
+    paused = 0;
+
+    // Reset death items
     for (int i = 0; i < MAX_DEATH_ITEMS; ++i) {
         deathItems[i].active = 0;
         deathItems[i].pos.x = 0;
@@ -125,7 +161,7 @@ void resetGame() {
     
     // Clear input buffer to prevent stale inputs
     flushinp();
-    
+
     // Clear all windows
     werase(gameWin);
     clear();
@@ -141,68 +177,75 @@ void resetGame() {
     refresh();
 }
 
+// True if p is occupied by the snake or any existing item on the board.
+// Used by every spawner so nothing lands on top of anything else.
+int cellIsOccupied(Point p) {
+    if (checkSnakeOverlap(p)) return 1;
+    for (int i = 0; i < foodCount; i++)
+        if (food[i].x == p.x && food[i].y == p.y) return 1;
+    for (int i = 0; i < tempFoodCount; i++)
+        if (tempFood[i].pos.x == p.x && tempFood[i].pos.y == p.y) return 1;
+    if (specialItem.active &&
+        specialItem.pos.x == p.x && specialItem.pos.y == p.y) return 1;
+    if (shrinkPotion.active &&
+        shrinkPotion.pos.x == p.x && shrinkPotion.pos.y == p.y) return 1;
+    for (int i = 0; i < MAX_DEATH_ITEMS; i++)
+        if (deathItems[i].active &&
+            deathItems[i].pos.x == p.x && deathItems[i].pos.y == p.y) return 1;
+    return 0;
+}
+
 void placeFood() {
-    if (foodCount < MAX_FOOD) {
-        Point newPos;
-        int attempts = 0;
-        
-        // Avoid spawning on snake
-        do {
-            newPos.x = rand() % COLS;
-            newPos.y = rand() % ROWS;
-            attempts++;
-        } while (checkSnakeOverlap(newPos) && attempts < 100);
-        
-        // Only place if we found a valid position
-        if (attempts < 100) {
-            food[foodCount] = newPos;
-            foodCount++;
-        }
+    if (foodCount >= MAX_FOOD) return;
+
+    Point newPos;
+    int attempts = 0;
+    do {
+        newPos.x = rand() % COLS;
+        newPos.y = rand() % ROWS;
+        attempts++;
+    } while (cellIsOccupied(newPos) && attempts < 100);
+
+    if (attempts < 100) {
+        food[foodCount] = newPos;
+        foodCount++;
     }
 }
 
 void placeTempFood() {
-    if (tempFoodCount < MAX_TEMP_FOOD) {
-        // Random position (avoiding snake body)
-        Point newPos;
-        int attempts = 0;
+    if (tempFoodCount >= MAX_TEMP_FOOD) return;
 
-        while (attempts < 50) {
-            newPos.x = rand() % COLS;
-            newPos.y = rand() % ROWS;
-            
-            // Check if position is valid (not out of bounds or on snake)
-            if (newPos.x >= 0 && newPos.x < COLS && newPos.y >= 0 && newPos.y < ROWS && 
-                !checkSnakeOverlap(newPos)) {
-                break; // Found a valid position
-            }
-            attempts++;
-        }
+    Point newPos;
+    int attempts = 0;
+    do {
+        newPos.x = rand() % COLS;
+        newPos.y = rand() % ROWS;
+        attempts++;
+    } while (cellIsOccupied(newPos) && attempts < 100);
 
-        // If we couldn't find a safe spot, don't spawn
-        if (attempts >= 50) return;
-        
-        tempFood[tempFoodCount].pos = newPos;
-        
-        // Random type (70% normal, 20% double, 10% triple)
-        int typeRoll = rand() % 100;
-        if (typeRoll < 70) {
-            tempFood[tempFoodCount].foodType = 0;
-            tempFood[tempFoodCount].symbol = 'T';
-            tempFood[tempFoodCount].timeLeft = 800; // 800 frames
-        } else if (typeRoll < 90) {
-            tempFood[tempFoodCount].foodType = 1;
-            tempFood[tempFoodCount].symbol = 'D';
-            tempFood[tempFoodCount].timeLeft = 600; // 600 frames
-        } else {
-            tempFood[tempFoodCount].foodType = 2;
-            tempFood[tempFoodCount].symbol = 'X';
-            tempFood[tempFoodCount].timeLeft = 400; // 400 frames
-        }
-        
-        //tempFood[tempFoodCount].blinkCounter = rand() % 5;
-        tempFoodCount++;
+    if (attempts >= 100) return;
+
+    tempFood[tempFoodCount].pos = newPos;
+
+    // Random type (70% normal, 20% double, 10% triple).
+    // Triple uses '#' — 'X' is reserved for death items so the two never
+    // share a glyph.
+    int typeRoll = rand() % 100;
+    if (typeRoll < 70) {
+        tempFood[tempFoodCount].foodType = 0;
+        tempFood[tempFoodCount].symbol = 'T';
+        tempFood[tempFoodCount].timeLeft = 800;
+    } else if (typeRoll < 90) {
+        tempFood[tempFoodCount].foodType = 1;
+        tempFood[tempFoodCount].symbol = 'D';
+        tempFood[tempFoodCount].timeLeft = 600;
+    } else {
+        tempFood[tempFoodCount].foodType = 2;
+        tempFood[tempFoodCount].symbol = '#';
+        tempFood[tempFoodCount].timeLeft = 400;
     }
+
+    tempFoodCount++;
 }
 
 int checkCollision(Point next) {
@@ -234,6 +277,15 @@ void moveSnake() {
         case DOWN: next.y++; break;
         case LEFT: next.x--; break;
         case RIGHT: next.x++; break;
+    }
+
+    // Wraparound: wrap before collision check so the wall test never fires.
+    // Self-collision still applies against the wrapped cell.
+    if (config.wraparound) {
+        if (next.x < 0)      next.x = COLS - 1;
+        else if (next.x >= COLS) next.x = 0;
+        if (next.y < 0)      next.y = ROWS - 1;
+        else if (next.y >= ROWS) next.y = 0;
     }
 /* ------------------ COLLISION FUNCTIONS ------------------*/
     if (checkCollision(next)) {
@@ -274,6 +326,14 @@ void moveSnake() {
         ateSpecialItem = 0;
     }
 
+    // Check shrink potion
+    int ateShrinkPotion = 0;
+    if (shrinkPotion.active &&
+        next.x == shrinkPotion.pos.x && next.y == shrinkPotion.pos.y) {
+        ateShrinkPotion = 1;
+        shrinkPotion.active = 0;
+    }
+
     // Check death items collision BEFORE moving - CHECK ALL SLOTS
     for (int i = 0; i < MAX_DEATH_ITEMS; ++i) {
         if (deathItems[i].active && next.x == deathItems[i].pos.x && next.y == deathItems[i].pos.y) {
@@ -283,77 +343,79 @@ void moveSnake() {
     }
 
 /* ------------------ MOVE SNAKE BODY ------------------*/
-    // Move snake body
+    // Remember the tail before shifting; if we grow this frame, new segments
+    // are seeded at this cell so they trail out naturally instead of
+    // rendering at whatever stale coordinates were sitting in body[].
+    Point oldTail = snake.body[snake.length - 1];
+
     for (int i = snake.length - 1; i > 0; i--)
         snake.body[i] = snake.body[i - 1];
     snake.body[0] = next;
 /* ------------------ END OF COLLISION FUNCTIONS ------------------*/
 
-    /* ------------------ SCORE PLACEMENT AND LOGIC FUNCTIONS ------------------*/
+    int growthAmount = 0;
+
     if (ateFood) {
-        // Remove eaten food by shifting array
         for (int i = foodIndex; i < foodCount - 1; i++) {
             food[i] = food[i + 1];
         }
         foodCount--;
-        
-        //int score = snake.length - 3; // Calculate score here when food is eaten
-        
-        // Double points during speed boost
-        int growthAmount = speedBoostActive ? 2 : 1;
-        
-        /*if (score == 5 || score == 20 || score == 50) {
-            snake.length += growthAmount;
-            placeTempFood();  // Place blinking temporary food at milestones
-            placeTempFood();
-            placeTempFood();
-        } else {
-            snake.length += growthAmount;
-            placeFood();
-        }
-    }*/
-        snake.length += growthAmount;
+
+        growthAmount += speedBoostActive ? 2 : 1;
         placeFood();
     }
 
-  
     if (ateTempFood) {
-        // Remove eaten temp food by shifting array
-        TempFood eatenFood = tempFood[tempFoodIndex]; // Store before removing
-        
+        TempFood eatenFood = tempFood[tempFoodIndex];
+
         for (int i = tempFoodIndex; i < tempFoodCount - 1; i++) {
             tempFood[i] = tempFood[i + 1];
         }
         tempFoodCount--;
-        
-        // Different rewards based on type
+
         switch (eatenFood.foodType) {
-            case 0: // Normal temp food
-                snake.length += 2;
+            case 0:
+                growthAmount += 2;
                 placeFood();
                 break;
-            case 1: // Double points
-                snake.length += 4;
+            case 1:
+                growthAmount += 4;
                 placeFood();
                 placeFood();
                 break;
-            case 2: // Triple points
-                snake.length += 6;
+            case 2:
+                growthAmount += 6;
                 placeFood();
                 placeFood();
                 placeFood();
                 break;
         }
     }
-    
+
     if (ateSpecialItem) {
-        snake.length += 2; // Special item gives modest immediate bonus
-        // Add regular food as reward
+        growthAmount += 2;
         placeFood();
-        
-        // Activate speed boost for 750 frames with double scoring
         speedBoostActive = 1;
         speedBoostTimer = 750;
+    }
+
+    // Grow: append the requested number of segments at the pre-shift tail.
+    // They overlap for one frame and unstack as the snake moves — the same
+    // way canonical Snake implementations handle growth.
+    if (growthAmount > 0) {
+        int newLength = snake.length + growthAmount;
+        if (newLength > MAX_SNAKE_LEN) newLength = MAX_SNAKE_LEN;
+        for (int i = snake.length; i < newLength; i++) {
+            snake.body[i] = oldTail;
+        }
+        snake.length = newLength;
+    }
+
+    // Shrink: trim tail segments. Growth-then-seed will overwrite the
+    // trimmed slots if the snake grows again, so no cleanup needed here.
+    if (ateShrinkPotion) {
+        snake.length -= SHRINK_AMOUNT;
+        if (snake.length < 3) snake.length = 3;
     }
 }
 /* ------------------ END OF FUNCTIONS ------------------*/
@@ -380,41 +442,42 @@ void drawInstructions() {
     mvprintw(startY + 6, instructX, "* - Food (+1, +2 w/boost)");
     mvprintw(startY + 7, instructX, "T - Temp Food (+2)");
     mvprintw(startY + 8, instructX, "D - Double Food (+4)");
-    mvprintw(startY + 9, instructX, "X - Triple Food (+6)");
+    mvprintw(startY + 9, instructX, "# - Triple Food (+6)");
     mvprintw(startY + 10, instructX, "$ - Speed + Double Points");
-    
-    mvprintw(startY + 12, instructX, "Avoid:");
-    mvprintw(startY + 13, instructX, "X - Death Item");
-    mvprintw(startY + 14, instructX, "Walls & Self");
+    mvprintw(startY + 11, instructX, "- - Shrink Potion (-3)");
+
+    mvprintw(startY + 13, instructX, "Avoid:");
+    mvprintw(startY + 14, instructX, "X - Death Item");
+    mvprintw(startY + 15, instructX, config.wraparound ? "Self only (walls wrap)" : "Walls & Self");
+    mvprintw(startY + 17, instructX, "P - Pause | Q - Quit");
     
     remove_all_colors(NULL);
 }
 
 void drawBoard() {
-    // Redraw the border first to ensure it's visible
-     apply_border_color(gameWin);
+    // 1. Border.
+    apply_border_color(gameWin);
     box(gameWin, 0, 0);
-        remove_all_colors(gameWin);
-         apply_snake_head_color(gameWin);
-    mvwaddch(gameWin, snake.body[0].y + 1, snake.body[0].x + 1, '@');
     remove_all_colors(gameWin);
-    apply_snake_body_color(gameWin);
-     for (int i = 1; i < snake.length; i++) {
-        mvwaddch(gameWin, snake.body[i].y + 1, snake.body[i].x + 1, 'o');
-    }
 
+    // 2. Blank the interior so last frame's positions don't ghost.
     for (int y = 1; y <= ROWS; y++) {
         for (int x = 1; x <= COLS; x++) {
             mvwaddch(gameWin, y, x, ' ');
         }
     }
-    
-    // Draw to border window instead of stdscr
-    for (int i = 0; i < snake.length; i++) {
-        mvwaddch(gameWin, snake.body[i].y + 1, snake.body[i].x + 1, (i == 0 ? '@' : 'o'));
+
+    // 3. Snake body first, then head, so the head color isn't overwritten.
+    apply_snake_body_color(gameWin);
+    for (int i = 1; i < snake.length; i++) {
+        mvwaddch(gameWin, snake.body[i].y + 1, snake.body[i].x + 1, 'o');
     }
-    
-    // Draw all food instances
+    remove_all_colors(gameWin);
+    apply_snake_head_color(gameWin);
+    mvwaddch(gameWin, snake.body[0].y + 1, snake.body[0].x + 1, '@');
+    remove_all_colors(gameWin);
+
+    // 4. Regular food.
     apply_food_color(gameWin);
     for (int i = 0; i < foodCount; i++) {
         mvwaddch(gameWin, food[i].y + 1, food[i].x + 1, '*');
@@ -442,7 +505,14 @@ void drawBoard() {
         mvwaddch(gameWin, specialItem.pos.y + 1, specialItem.pos.x + 1, specialItem.symbol);
     }
     remove_all_colors(gameWin);
-    
+
+    // Shrink potion — reuse the success color to read as "friendly".
+    if (shrinkPotion.active) {
+        apply_success_color(gameWin);
+        mvwaddch(gameWin, shrinkPotion.pos.y + 1, shrinkPotion.pos.x + 1, shrinkPotion.symbol);
+        remove_all_colors(gameWin);
+    }
+
     // Draw death items if active - CHECK ALL SLOTS
     apply_death_item_color(gameWin);
     for (int i = 0; i < MAX_DEATH_ITEMS; ++i) {
@@ -467,34 +537,41 @@ void drawBoard() {
         remove_all_colors(NULL);
     }
     
+    // PAUSED overlay drawn on top of the game window.
+    if (paused) {
+        apply_warning_color(gameWin);
+        mvwprintw(gameWin, ROWS / 2, COLS / 2 - 3, "PAUSED");
+        remove_all_colors(gameWin);
+    }
+
     // Refresh border window first, then stdscr
     wrefresh(gameWin);
-    
+
     // Draw instructions panel
     drawInstructions();
-    
+
     refresh();
 }
 /* ------------------ END OF GAME WINDOW FUNCTIONS ------------------ */
 void changeDirection(int input) {
     // Check against current direction to prevent 180-degree turns
     Direction newDir = nextDirection;  // Start with buffered direction
-    
+
     switch (input) {
-        case 'W': case 'w': 
-            if (snake.direction != DOWN) newDir = UP; 
+        case 'W': case 'w': case KEY_UP:
+            if (snake.direction != DOWN) newDir = UP;
             break;
-        case 'S': case 's': 
-            if (snake.direction != UP) newDir = DOWN; 
+        case 'S': case 's': case KEY_DOWN:
+            if (snake.direction != UP) newDir = DOWN;
             break;
-        case 'A': case 'a': 
-            if (snake.direction != RIGHT) newDir = LEFT; 
+        case 'A': case 'a': case KEY_LEFT:
+            if (snake.direction != RIGHT) newDir = LEFT;
             break;
-        case 'D': case 'd': 
-            if (snake.direction != LEFT) newDir = RIGHT; 
+        case 'D': case 'd': case KEY_RIGHT:
+            if (snake.direction != LEFT) newDir = RIGHT;
             break;
     }
-    
+
     // Only update if it's a valid direction change
     nextDirection = newDir;
 }
@@ -561,26 +638,56 @@ void trySpawnSpecialItem() {
 void trySpawnTempFood() {
     // Only spawn if we have room for more temp food
     if (tempFoodCount >= MAX_TEMP_FOOD) return;
-    
-    // Probability increases with time (refreshCounter)
-    // Base probability that increases over time
+
+    // Probability ramps with a dedicated counter so temp-food spawns don't
+    // reset the special-item and death-item probability curves.
     float baseProbability = 0.001f; // 0.1% base chance
-    float timeFactor = refreshCounter * 0.00001f; // Increase chance with time
-    float maxProbability = 0.02f; // 2% maximum
-    
+    float timeFactor = tempFoodSpawnCounter * 0.00001f;
+    float maxProbability = 0.02f;   // 2% maximum
+
     float currentProbability = baseProbability + timeFactor;
     if (currentProbability > maxProbability) {
         currentProbability = maxProbability;
     }
-    
+
     int probabilityThreshold = (int)(currentProbability * 10000);
-    
+
     if (rand() % 10000 < probabilityThreshold) {
         placeTempFood();
-        // Reset refresh counter after spawning to reset probability
-        refreshCounter = 0;
+        tempFoodSpawnCounter = 0;
     }
 }
+void trySpawnShrinkPotion() {
+    if (shrinkPotion.active) return;
+    // Only appears once the snake is long enough for shrinking to matter.
+    if (snake.length < 8) return;
+
+    // Rare: ~0.03% base, ramps to ~0.3% max.
+    float baseProbability = 0.0003f;
+    float timeFactor = refreshCounter * 0.000002f;
+    float maxProbability = 0.003f;
+
+    float currentProbability = baseProbability + timeFactor;
+    if (currentProbability > maxProbability) currentProbability = maxProbability;
+
+    int probabilityThreshold = (int)(currentProbability * 10000);
+    if (rand() % 10000 >= probabilityThreshold) return;
+
+    Point p;
+    int attempts = 0;
+    do {
+        p.x = rand() % COLS;
+        p.y = rand() % ROWS;
+        attempts++;
+    } while (cellIsOccupied(p) && attempts < 100);
+
+    if (attempts < 100) {
+        shrinkPotion.pos = p;
+        shrinkPotion.symbol = '-';
+        shrinkPotion.active = 1;
+    }
+}
+
 void trySpawnDeathItem() {
     // Count currently active death items
     int activeCount = 0;
@@ -648,8 +755,67 @@ void trySpawnDeathItem() {
         break;
     }
 }
+// Blocking pre-game options screen. Returns 0 to start, 1 to quit.
+int configMenu(void) {
+    nodelay(stdscr, FALSE);   // blocking input for the menu
+    int done = 0;
+    int quit = 0;
+
+    while (!done) {
+        clear();
+        apply_text_color(NULL);
+        mvprintw(2, 5, "=== SNAKE — Options ===");
+
+        mvprintw(5, 5, "[1] Walls:     %s", config.wraparound ? "WRAP" : "KILL");
+        mvprintw(6, 5, "[2] Speed:     %s", speedNames[config.speedIndex]);
+        mvprintw(7, 5, "[3] Controls:  %s", config.useArrows ? "ARROW KEYS" : "WASD");
+
+        mvprintw(10, 5, "1/2/3 to cycle    ENTER to start    Q to quit");
+        mvprintw(12, 5, "Tip: some terminals render slower — pick a lower");
+        mvprintw(13, 5, "     speed if the game feels laggy.");
+        remove_all_colors(NULL);
+        refresh();
+
+        int ch = getch();
+        switch (ch) {
+            case '1':
+                config.wraparound = !config.wraparound;
+                break;
+            case '2':
+                config.speedIndex++;
+                if (config.speedIndex > 5) config.speedIndex = 1;
+                break;
+            case '3':
+                config.useArrows = !config.useArrows;
+                break;
+            case '\n': case '\r': case KEY_ENTER:
+                done = 1;
+                break;
+            case 'q': case 'Q':
+                done = 1;
+                quit = 1;
+                break;
+        }
+    }
+
+    clear();
+    refresh();
+    nodelay(stdscr, TRUE);    // back to non-blocking for the game
+    return quit;
+}
+
+// True if the keypress matches whichever movement scheme is configured.
+static int isMovementKey(int ch) {
+    if (config.useArrows) {
+        return ch == KEY_UP || ch == KEY_DOWN ||
+               ch == KEY_LEFT || ch == KEY_RIGHT;
+    }
+    return ch == 'W' || ch == 'w' || ch == 'S' || ch == 's' ||
+           ch == 'A' || ch == 'a' || ch == 'D' || ch == 'd';
+}
+
 int main() {
-    
+
     srand(time(NULL));
     initscr();
     cbreak();
@@ -663,6 +829,11 @@ int main() {
         getch();
         endwin();
         return 1;
+    }
+
+    if (configMenu()) {
+        endwin();
+        return 0;
     }
 
     initBorder(); // Create border once
@@ -682,32 +853,47 @@ int main() {
                     gameOver = 1; // Exit to game over screen
                     break;
                 }
-                changeDirection(ch);
+                if (ch == 'p' || ch == 'P') {
+                    paused = !paused;
+                } else if (!paused && isMovementKey(ch)) {
+                    changeDirection(ch);
+                }
+            }
+
+            if (paused) {
+                // Freeze game state; keep drawing so the PAUSED overlay shows.
+                drawBoard();
+                usleep((unsigned int)(DELAY));
+                continue;
             }
 
             // Increment frame counters
             refreshCounter++;
+            tempFoodSpawnCounter++;
             movementFrameCounter++;
-            
-            // Calculate movement interval based on speed boost
-            int currentMovementInterval = MOVEMENT_FRAME_INTERVAL;
+
+            // Movement interval from config, with speed boost speeding it up.
+            int baseInterval = speedIntervals[config.speedIndex];
+            int currentMovementInterval = baseInterval;
             if (speedBoostActive) {
-                currentMovementInterval = MOVEMENT_FRAME_INTERVAL * 2 / 3; // 33% faster movement
+                currentMovementInterval = baseInterval * 2 / 3;
+                if (currentMovementInterval < 1) currentMovementInterval = 1;
             }
-            
+
             // Only move snake at intervals
             if (movementFrameCounter >= currentMovementInterval) {
                 moveSnake();
                 movementFrameCounter = 0;
             }
-            
-            updateTempFood();  // Update temporary food timers
-            updateSpeedBoost(); // Update speed boost timer
-            trySpawnTempFood();    // Try to spawn temp food randomly
-            trySpawnSpecialItem(); // Try to spawn special item
-            trySpawnDeathItem(); // Try to spawn death item
+
+            updateTempFood();       // Update temporary food timers
+            updateSpeedBoost();     // Update speed boost timer
+            trySpawnTempFood();     // Try to spawn temp food randomly
+            trySpawnSpecialItem();  // Try to spawn special item
+            trySpawnShrinkPotion(); // Try to spawn shrink potion
+            trySpawnDeathItem();    // Try to spawn death item
             drawBoard();
-            
+
             // Fixed delay for all frames - direction no longer affects delay
             if (snake.direction == UP || snake.direction == DOWN)
                 usleep((unsigned int)(DELAY * 1.2));   // 20% saktare. Kompensation för terminaldelay
@@ -740,8 +926,16 @@ int main() {
         if (ch == 'r' || ch == 'R') {
             // Clear input buffer before restart
             flushinp();
+            // Re-open the options screen between rounds so speed / wrap /
+            // control scheme can be tuned without quitting. Q here quits.
+            if (configMenu()) {
+                delwin(gameWin);
+                endwin();
+                return 0;
+            }
             resetGame();
-            initBorder();
+            // Do not re-initBorder — the existing gameWin is fine and
+            // reallocating it here leaked the previous WINDOW every restart.
             break; // Exit game over loop to restart the game
         } else if (ch == 'q' || ch == 'Q') {
             // Clear buffers before exit

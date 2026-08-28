@@ -1,0 +1,49 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "linux",
+            "displayName": "Linux (ncurses)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Linux"
+            }
+        },
+        {
+            "name": "mac",
+            "displayName": "macOS (system or Homebrew ncurses)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
+        },
+        {
+            "name": "windows-mingw",
+            "displayName": "Windows via MinGW-w64 cross-compile",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-windows",
+            "toolchainFile": "${sourceDir}/cmake/toolchain-mingw-w64.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ],
+    "buildPresets": [
+        { "name": "linux",         "configurePreset": "linux" },
+        { "name": "mac",           "configurePreset": "mac" },
+        { "name": "windows-mingw", "configurePreset": "windows-mingw" }
+    ]
+}
