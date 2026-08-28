@@ -2,7 +2,8 @@
 
 Simple terminal Snake game. Uses `ncurses` on Linux/macOS and PDCurses (wincon backend) on Windows.
 
-![screenshot](https://github.com/user-attachments/assets/10eded69-6200-4022-a1b0-1159d821ec16)
+<img width="618" height="444" alt="snake" src="https://github.com/user-attachments/assets/bf3b8bc2-f44e-476e-805e-75ac57b3467b" />
+
 
 ## Play
 
