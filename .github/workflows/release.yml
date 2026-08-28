@@ -188,14 +188,14 @@ jobs:
             snake-macos-universal
           generate_release_notes: true
           body: |
-            Terminal Snake — prebuilt binaries.
+            Terminal Snake - prebuilt binaries.
 
             ### Verifying provenance
             Every binary below was built by [this workflow](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) and carries a GitHub-signed build-provenance attestation. Verify with the [GitHub CLI](https://cli.github.com/):
             ```
             gh attestation verify <downloaded-file> --repo ${{ github.repository }}
             ```
-            This cryptographically ties the file to the exact workflow run and commit that produced it — stronger than a self-hosted SHA256 sum.
+            This cryptographically ties the file to the exact workflow run and commit that produced it - stronger than a self-hosted SHA256 sum.
 
             ### Linux (x86_64)
             ```
@@ -205,9 +205,9 @@ jobs:
             Needs `libncursesw6` (preinstalled on essentially every modern desktop distro) and glibc ≥ 2.35 (Ubuntu 22.04 / Debian 12 / Fedora 36 or newer).
 
             ### Windows (x86_64)
-            Double-click `snake-windows-x86_64.exe`, or run it from `cmd`/PowerShell. PDCurses is statically linked; no runtime dependencies. SmartScreen may show an "unrecognized publisher" warning on first run — click **More info → Run anyway**.
+            Double-click `snake-windows-x86_64.exe`, or run it from `cmd`/PowerShell. PDCurses is statically linked; no runtime dependencies. SmartScreen may show an "unrecognized publisher" warning on first run - click **More info → Run anyway**.
 
-            ### macOS (universal — Intel and Apple Silicon)
+            ### macOS (universal - Intel and Apple Silicon)
             The binary is unsigned, so Gatekeeper quarantines it on first download. Clear the flag once:
             ```
             chmod +x snake-macos-universal

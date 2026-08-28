@@ -72,7 +72,7 @@ typedef struct {
 // Multiple death items
 DeathItem deathItems[MAX_DEATH_ITEMS];
 
-// Shrink potion — rare "get out of jail" item that trims the snake by
+// Shrink potion - rare "get out of jail" item that trims the snake by
 // SHRINK_AMOUNT segments (never below 3).
 #define SHRINK_AMOUNT 3
 typedef struct {
@@ -228,7 +228,7 @@ void placeTempFood() {
     tempFood[tempFoodCount].pos = newPos;
 
     // Random type (70% normal, 20% double, 10% triple).
-    // Triple uses '#' — 'X' is reserved for death items so the two never
+    // Triple uses '#' - 'X' is reserved for death items so the two never
     // share a glyph.
     int typeRoll = rand() % 100;
     if (typeRoll < 70) {
@@ -400,7 +400,7 @@ void moveSnake() {
     }
 
     // Grow: append the requested number of segments at the pre-shift tail.
-    // They overlap for one frame and unstack as the snake moves — the same
+    // They overlap for one frame and unstack as the snake moves - the same
     // way canonical Snake implementations handle growth.
     if (growthAmount > 0) {
         int newLength = snake.length + growthAmount;
@@ -506,7 +506,7 @@ void drawBoard() {
     }
     remove_all_colors(gameWin);
 
-    // Shrink potion — reuse the success color to read as "friendly".
+    // Shrink potion - reuse the success color to read as "friendly".
     if (shrinkPotion.active) {
         apply_success_color(gameWin);
         mvwaddch(gameWin, shrinkPotion.pos.y + 1, shrinkPotion.pos.x + 1, shrinkPotion.symbol);
@@ -764,14 +764,14 @@ int configMenu(void) {
     while (!done) {
         clear();
         apply_text_color(NULL);
-        mvprintw(2, 5, "=== SNAKE — Options ===");
+        mvprintw(2, 5, "=== SNAKE - Options ===");
 
         mvprintw(5, 5, "[1] Walls:     %s", config.wraparound ? "WRAP" : "KILL");
         mvprintw(6, 5, "[2] Speed:     %s", speedNames[config.speedIndex]);
         mvprintw(7, 5, "[3] Controls:  %s", config.useArrows ? "ARROW KEYS" : "WASD");
 
         mvprintw(10, 5, "1/2/3 to cycle    ENTER to start    Q to quit");
-        mvprintw(12, 5, "Tip: some terminals render slower — pick a lower");
+        mvprintw(12, 5, "Tip: some terminals render slower - pick a lower");
         mvprintw(13, 5, "     speed if the game feels laggy.");
         remove_all_colors(NULL);
         refresh();
@@ -934,7 +934,7 @@ int main() {
                 return 0;
             }
             resetGame();
-            // Do not re-initBorder — the existing gameWin is fine and
+            // Do not re-initBorder - the existing gameWin is fine and
             // reallocating it here leaked the previous WINDOW every restart.
             break; // Exit game over loop to restart the game
         } else if (ch == 'q' || ch == 'Q') {

@@ -23,7 +23,7 @@ Needs `libncursesw6` (preinstalled on essentially every modern desktop distro).
 
 ### Windows
 
-Double-click `snake-windows-x86_64.exe`, or run it from a terminal. No runtime dependencies. SmartScreen may warn about an unrecognized publisher on first run — click **More info → Run anyway**.
+Double-click `snake-windows-x86_64.exe`, or run it from a terminal. No runtime dependencies. SmartScreen may warn about an unrecognized publisher on first run - click **More info → Run anyway**.
 
 ### macOS
 
@@ -53,7 +53,7 @@ sudo apt install mingw-w64 ninja-build
 cmake --preset windows-mingw && cmake --build --preset windows-mingw
 ```
 
-Output binary lands in `build/snake` (or `build-windows/snake.exe`). Native Windows builds via MSYS2 mingw64 also work — install `mingw-w64-x86_64-cmake` and `mingw-w64-x86_64-ninja` and use the `linux` preset (compiler is native, no toolchain file needed).
+Output binary lands in `build/snake` (or `build-windows/snake.exe`). Native Windows builds via MSYS2 mingw64 also work - install `mingw-w64-x86_64-cmake` and `mingw-w64-x86_64-ninja` and use the `linux` preset (compiler is native, no toolchain file needed).
 
 ## Controls
 

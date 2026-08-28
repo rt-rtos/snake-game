@@ -44,7 +44,7 @@ if(WIN32)
     target_link_libraries(snake PRIVATE pdcurses)
 else()
     # Linux / macOS: link the system curses. On macOS, prefer Homebrew's
-    # ncurses if present — the system one is typically outdated.
+    # ncurses if present - the system one is typically outdated.
     if(APPLE)
         find_program(BREW_EXECUTABLE brew)
         if(BREW_EXECUTABLE)
