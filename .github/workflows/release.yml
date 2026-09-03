@@ -85,10 +85,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install build deps
-        run: brew install ninja ncurses
+        run: brew install ninja
 
       - name: Configure
-        run: cmake --preset mac
+        run: cmake --preset mac -DSNAKE_USE_BREW_NCURSES=OFF
 
       - name: Build
         run: cmake --build --preset mac
@@ -111,10 +111,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install build deps
-        run: brew install ninja ncurses
+        run: brew install ninja
 
       - name: Configure
-        run: cmake --preset mac
+        run: cmake --preset mac -DSNAKE_USE_BREW_NCURSES=OFF
 
       - name: Build
         run: cmake --build --preset mac

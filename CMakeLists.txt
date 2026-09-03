@@ -44,8 +44,10 @@ if(WIN32)
     target_link_libraries(snake PRIVATE pdcurses)
 else()
     # Linux / macOS: link the system curses. On macOS, prefer Homebrew's
-    # ncurses if present - the system one is typically outdated.
-    if(APPLE)
+    # ncurses if present - the system one is typically outdated. Release
+    # builds turn this off so the binary only depends on the system dylib.
+    option(SNAKE_USE_BREW_NCURSES "macOS: link Homebrew ncurses when installed" ON)
+    if(APPLE AND SNAKE_USE_BREW_NCURSES)
         find_program(BREW_EXECUTABLE brew)
         if(BREW_EXECUTABLE)
             execute_process(
